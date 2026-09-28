@@ -1,0 +1,72 @@
+# Two-container setup:
+#   ollama - runs the local model, is the ONLY thing `agent` can talk to
+#   agent  - the sandboxed orchestrator; internal-only network, read-only
+#            ROM mount, CPU/memory/pids limits as a backstop to the
+#            in-process time budget (engine/budget.py)
+#
+# You normally don't invoke this file directly - use the wrapper scripts,
+# which build the image LOCALLY (this file has no `image:` pointing at a
+# registry - `build:` only), bring both services up, pull the configured
+# model, and kick off (or resume) a run:
+#
+#   ./scripts/setup.sh --rom /path/to/game.nes --console nes --name smb3
+#   ./scripts/continue.sh --name smb3 --hours 24
+#
+# Configuration (which model, how many hours, which game/console) comes from
+# docker/.env - see docker/.env.example for all options including four free
+# model picks for different hardware tiers.
+
+services:
+  ollama:
+    image: ollama/ollama:latest
+    volumes:
+      - ollama_models:/root/.ollama
+    # ollama needs internet access ONCE, to pull the model weights
+    # (`docker compose exec ollama ollama pull ...`). It sits on both
+    # networks so it can reach the internet for that AND be reachable by
+    # `agent` on the internal-only network. If you want to remove internet
+    # access entirely after pulling, comment out `default` below and
+    # restart - ollama will keep serving whatever models are already in the
+    # ollama_models volume.
+    networks:
+      - default
+      - agent_net
+
+  agent:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    depends_on:
+      - ollama
+    environment:
+      - OLLAMA_HOST=http://ollama:11434
+      - GAME_NAME=${GAME_NAME:?set GAME_NAME in docker/.env}
+      - CONSOLE=${CONSOLE:?set CONSOLE in docker/.env}
+      - ROM_FILENAME=${ROM_FILENAME:?set ROM_FILENAME in docker/.env}
+      - OLLAMA_MODEL=${OLLAMA_MODEL:-qwen2.5-coder:7b}
+      - TIME_LIMIT_HOURS=${TIME_LIMIT_HOURS:-24}
+      - MAX_ATTEMPTS_PER_UNIT=${MAX_ATTEMPTS_PER_UNIT:-8}
+    volumes:
+      - ../workdir:/work
+    networks:
+      - agent_net
+    # No `ports` - nothing needs to reach into this container from outside.
+    # Internal-only network below means this container cannot reach the
+    # public internet at all, only the ollama service by its compose name.
+    entrypoint: ["sleep", "infinity"]  # exec into it with `docker compose exec agent ...`
+    deploy:
+      resources:
+        limits:
+          cpus: "4.0"
+          memory: 8g
+        # pids_limit and other hard caps can be added via a compose override
+        # or run.py's own runtime, depending on your Docker Compose version.
+
+networks:
+  # `default` = normal bridge network with internet, used only by ollama,
+  # only to pull model weights.
+  agent_net:
+    internal: true  # <-- this is what actually blocks internet egress for `agent`
+
+volumes:
+  ollama_models:

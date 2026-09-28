@@ -1,0 +1,4 @@
+# The engine and NES plugin use only the Python standard library on
+# purpose - fewer dependencies to vet inside the sandboxed container.
+# pytest is only needed to run tests/test_verify.py.
+pytest

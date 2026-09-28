@@ -35,6 +35,14 @@ class UnitDiff:
     detail: str = ""
     build_ok: bool = True
     build_error: str = ""
+    # True when the bytes ALREADY match but the source is still an
+    # unrefined placeholder (e.g. a raw `.byte` dump) rather than real
+    # disassembled instructions. Byte-exactness alone is trivially true for
+    # a literal copy of the original bytes - a plugin should set `matched`
+    # to False whenever this is True, so the orchestrator still invokes the
+    # model to do the actual (semantic) work instead of treating an untouched
+    # placeholder as "done".
+    needs_disassembly: bool = False
 
     @property
     def match_ratio(self) -> float:
